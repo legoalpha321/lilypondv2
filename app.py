@@ -7,6 +7,8 @@ from pathlib import Path
 import platform
 import re
 import music21
+import traceback
+import shutil
 
 st.set_page_config(
     page_title="LilyPond to PDF Converter",
@@ -178,16 +180,13 @@ lower = \relative c {
 }
 
 \score {
-  \new PianoStaff <<
+  \new PianoStaff 
     \new Staff = "upper" \upper
     \new Staff = "lower" \lower
   >>
   \layout { }
   \midi { }
 }"""
-
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["Input Text", "Upload File", "Convert MIDI to LilyPond"])
 
 # Initialize session state for storing generated files
 if 'pdf_generated' not in st.session_state:
@@ -200,6 +199,9 @@ if 'midi_data' not in st.session_state:
     st.session_state.midi_data = None
 if 'midi_filename' not in st.session_state:
     st.session_state.midi_filename = None
+
+# Create tabs
+tab1, tab2, tab3 = st.tabs(["Input Text", "Upload File", "Convert MIDI to LilyPond"])
 
 with tab1:
     # Text input area
@@ -227,6 +229,9 @@ with tab1:
     
     # Output options
     output_filename = st.text_input("Output Filename", value=default_filename)
+    
+    # Convert button for text input
+    convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)
 
 with tab2:
     # File upload
@@ -255,31 +260,9 @@ with tab2:
         default_name = "output"
         
     output_filename_file = st.text_input("Output Filename", value=default_name, key="file_output")
-
-# Display download buttons if files have been generated
-if st.session_state.pdf_generated:
-    st.success("Files generated successfully!")
     
-    # Create download buttons for both PDF and MIDI
-    if st.session_state.pdf_data is not None:
-        st.download_button(
-            label="Download PDF",
-            data=st.session_state.pdf_data,
-            file_name=st.session_state.pdf_filename,
-            mime="application/octet-stream",
-            key="pdf_download"
-        )
-    
-    if st.session_state.midi_data is not None:
-        st.download_button(
-            label="Download MIDI",
-            data=st.session_state.midi_data,
-            file_name=st.session_state.midi_filename,
-            mime="audio/midi",
-            key="midi_download"
-        )
-    
-    st.info("PDF preview is not available due to browser security restrictions. Please download the PDF to view it.")
+    # Convert button for file upload
+    convert_file = st.button("Convert to PDF", key="convert_file", disabled=not lilypond_path or uploaded_file is None)
 
 with tab3:
     st.subheader("Convert MIDI to LilyPond")
@@ -288,7 +271,7 @@ with tab3:
     if uploaded_midi is not None:
         st.info("MIDI file uploaded successfully!")
         
-        if st.button("Convert MIDI to LilyPond"):
+        if st.button("Convert MIDI to LilyPond", key="convert_midi"):
             status_container = st.empty()
             status_container.info("Starting conversion...")
             
@@ -330,9 +313,34 @@ with tab3:
                 st.error("Detailed error information:")
                 st.code(traceback.format_exc())
 
-# Convert buttons
-convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)
-convert_file = st.button("Convert to PDF", key="convert_file", disabled=not lilypond_path or uploaded_file is None)
+# Display download buttons if files have been generated
+if st.session_state.pdf_generated:
+    st.success("Files generated successfully!")
+    
+    col1, col2 = st.columns(2)
+    
+    # Create download buttons for both PDF and MIDI
+    with col1:
+        if st.session_state.pdf_data is not None:
+            st.download_button(
+                label="Download PDF",
+                data=st.session_state.pdf_data,
+                file_name=st.session_state.pdf_filename,
+                mime="application/pdf",
+                key="pdf_download"
+            )
+    
+    with col2:
+        if st.session_state.midi_data is not None:
+            st.download_button(
+                label="Download MIDI",
+                data=st.session_state.midi_data,
+                file_name=st.session_state.midi_filename,
+                mime="audio/midi",
+                key="midi_download"
+            )
+    
+    st.info("PDF preview is not available due to browser security restrictions. Please download the PDF to view it.")
 
 # Processing logic
 if (convert_text or convert_file) and lilypond_path:
@@ -384,7 +392,6 @@ if (convert_text or convert_file) and lilypond_path:
             os.makedirs(cache_dir, exist_ok=True)
             final_pdf_path = os.path.join(cache_dir, f"{output_name}.pdf")
             
-            import shutil
             shutil.copy2(temp_pdf_path, final_pdf_path)
             
             # Store PDF data in session state
@@ -423,9 +430,9 @@ if (convert_text or convert_file) and lilypond_path:
 st.markdown("---")
 st.markdown("""
 ### How to Use This App
-1. Enter LilyPond notation or upload a .ly file
+1. Enter LilyPond notation, upload a .ly file, or convert a MIDI file
 2. Set your desired output filename
-3. Click "Convert to PDF"
+3. Click "Convert to PDF" (for LilyPond input) or "Convert MIDI to LilyPond" (for MIDI input)
 4. Download the generated PDF and MIDI files
 
 ### About LilyPond
