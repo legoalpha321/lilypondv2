@@ -34,7 +34,7 @@ def extract_title_from_lilypond(ly_content):
     if title_match:
         title = title_match.group(1)
         # Convert title to a valid filename by replacing problematic characters
-        safe_title = re.sub(r'[\\/:*?"<>|]', '_', safe_title)
+        safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
         return safe_title
     
     return None
