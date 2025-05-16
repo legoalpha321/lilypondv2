@@ -186,7 +186,7 @@ lower = \relative c {
 }"""
 
 # Create tabs
-tab1, tab2 = st.tabs(["Input Text", "Upload File"])
+tab1, tab2, tab3 = st.tabs(["Input Text", "Upload File", "Convert MIDI to LilyPond"])
 
 # Initialize session state for storing generated files
 if 'pdf_generated' not in st.session_state:
@@ -277,77 +277,107 @@ if st.session_state.pdf_generated:
             mime="audio/midi",
             key="midi_download"
         )
-        
-        # Add MIDI Player
-        st.subheader("MIDI Preview")
-        midi_b64 = base64.b64encode(st.session_state.midi_data).decode()
-        
-        # Simple HTML5 audio player (works in some browsers)
-        st.markdown("### Basic MIDI Player")
-        midi_player = f"""
-        <div style='margin-bottom: 20px;'>
-            <audio controls>
-                <source src="data:audio/midi;base64,{midi_b64}" type="audio/midi">
-                Your browser does not support the audio element.
-            </audio>
-        </div>
-        """
-        st.markdown(midi_player, unsafe_allow_html=True)
-        
-        # Advanced player with MIDI.js (better MIDI support)
-        st.markdown("### Advanced MIDI Player")
-        st.markdown(f"""
-        <div id="player-container" style="width:100%; margin-bottom:20px;">
-            <script src="https://cdn.jsdelivr.net/npm/midi-player-js@2.0.16/build/midi-player-js.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
-            
-            <div style="padding: 20px; border-radius: 5px; background-color: #f8f9fa;">
-                <button id="play" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Play</button>
-                <button id="pause" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Pause</button>
-                <button id="stop" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Stop</button>
-                <div id="loading">Loading MIDI...</div>
-            </div>
-            
-            <script>
-                const midiData = "data:audio/midi;base64,{midi_b64}";
-                
-                // Wait for the page to load
-                window.addEventListener('load', function() {{
-                    const Player = new MidiPlayer.Player(function(event) {{
-                        // Handle events
-                    }});
-                    
-                    // Load MIDI file
-                    fetch(midiData)
-                        .then(response => response.arrayBuffer())
-                        .then(buffer => {{
-                            const loadingMessage = document.getElementById('loading');
-                            loadingMessage.innerHTML = "MIDI loaded successfully";
-                            Player.loadArrayBuffer(buffer);
-                            
-                            // Setup player controls
-                            document.getElementById('play').addEventListener('click', function() {{
-                                Player.play();
-                            }});
-                            
-                            document.getElementById('pause').addEventListener('click', function() {{
-                                Player.pause();
-                            }});
-                            
-                            document.getElementById('stop').addEventListener('click', function() {{
-                                Player.stop();
-                            }});
-                        }})
-                        .catch(error => {{
-                            console.error('Error loading MIDI:', error);
-                            document.getElementById('loading').innerHTML = "Error loading MIDI";
-                        }});
-                }});
-            </script>
-        </div>
-        """, unsafe_allow_html=True)
     
     st.info("PDF preview is not available due to browser security restrictions. Please download the PDF to view it.")
+
+with tab3:
+    st.subheader("Convert MIDI to LilyPond")
+    uploaded_midi = st.file_uploader("Upload a MIDI file", type=['mid', 'midi'])
+    
+    if uploaded_midi is not None:
+        st.info("MIDI file uploaded successfully!")
+        
+        # Options for conversion
+        st.subheader("Conversion Options")
+        key_option = st.selectbox("Key Signature", 
+                                 ["Determine automatically"] + 
+                                 ["C", "G", "D", "A", "E", "B", "F#", "C#", 
+                                  "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"])
+        
+        include_articulation = st.checkbox("Include articulations", value=True)
+        include_dynamics = st.checkbox("Include dynamics", value=True)
+        quantize_note = st.slider("Quantize note duration (smaller is more precise)", 
+                                min_value=4, max_value=32, value=16, step=4)
+        
+        if st.button("Convert MIDI to LilyPond"):
+            # Create a status container
+            status_container = st.empty()
+            status_container.info("Starting conversion...")
+            
+            try:
+                # Create a temporary directory
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Save the uploaded MIDI file
+                    midi_path = os.path.join(temp_dir, "input.midi")
+                    with open(midi_path, 'wb') as f:
+                        f.write(uploaded_midi.getvalue())
+                    
+                    # Determine midi2ly path (typically in the same directory as lilypond)
+                    midi2ly_path = None
+                    if lilypond_path:
+                        # Get directory of lilypond
+                        lilypond_dir = os.path.dirname(lilypond_path)
+                        potential_midi2ly = os.path.join(lilypond_dir, "midi2ly")
+                        if os.path.exists(potential_midi2ly):
+                            midi2ly_path = potential_midi2ly
+                        elif os.path.exists(potential_midi2ly + ".exe"):
+                            midi2ly_path = potential_midi2ly + ".exe"
+                    
+                    if not midi2ly_path:
+                        status_container.error("midi2ly tool not found. It should be installed with LilyPond.")
+                        st.stop()
+                    
+                    # Build command for midi2ly
+                    ly_output_path = os.path.join(temp_dir, "output.ly")
+                    cmd = [midi2ly_path, "-o", ly_output_path]
+                    
+                    # Add options based on user selections
+                    if key_option != "Determine automatically":
+                        cmd.extend(["-k", key_option])
+                    if include_articulation:
+                        cmd.append("-a")
+                    if include_dynamics:
+                        cmd.append("-d")
+                    cmd.extend(["-q", str(quantize_note)])
+                    
+                    # Add the input file
+                    cmd.append(midi_path)
+                    
+                    # Run midi2ly
+                    status_container.info("Running midi2ly conversion...")
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if result.returncode != 0:
+                        status_container.error(f"midi2ly Error: {result.stderr}")
+                        st.stop()
+                    
+                    # Check if LilyPond was generated
+                    if not os.path.exists(ly_output_path):
+                        status_container.error("midi2ly did not generate LilyPond notation.")
+                        st.stop()
+                    
+                    # Read the generated LilyPond file
+                    with open(ly_output_path, "r") as ly_file:
+                        lilypond_text = ly_file.read()
+                    
+                    # Clear status
+                    status_container.empty()
+                    
+                    # Display the LilyPond notation
+                    st.subheader("Generated LilyPond Notation")
+                    st.text_area("Copy this code:", value=lilypond_text, height=400)
+                    
+                    # Add button to copy to the text input tab
+                    if st.button("Use this in the Text Input Tab"):
+                        st.session_state['ly_text'] = lilypond_text
+                        st.info("LilyPond code copied to the Text Input tab!")
+                    
+            except Exception as e:
+                st.error(f"Error during conversion: {str(e)}")
 
 # Convert buttons
 convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)
