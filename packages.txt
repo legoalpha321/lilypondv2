@@ -1,3 +1,2 @@
 lilypond
-midi2ly
 fonts-texgyre
