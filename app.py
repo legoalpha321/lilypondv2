@@ -34,7 +34,7 @@ def extract_title_from_lilypond(ly_content):
     if title_match:
         title = title_match.group(1)
         # Convert title to a valid filename by replacing problematic characters
-        safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
+        safe_title = re.sub(r'[\\/:*?"<>|]', '_', safe_title)
         return safe_title
     
     return None
@@ -277,6 +277,75 @@ if st.session_state.pdf_generated:
             mime="audio/midi",
             key="midi_download"
         )
+        
+        # Add MIDI Player
+        st.subheader("MIDI Preview")
+        midi_b64 = base64.b64encode(st.session_state.midi_data).decode()
+        
+        # Simple HTML5 audio player (works in some browsers)
+        st.markdown("### Basic MIDI Player")
+        midi_player = f"""
+        <div style='margin-bottom: 20px;'>
+            <audio controls>
+                <source src="data:audio/midi;base64,{midi_b64}" type="audio/midi">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        """
+        st.markdown(midi_player, unsafe_allow_html=True)
+        
+        # Advanced player with MIDI.js (better MIDI support)
+        st.markdown("### Advanced MIDI Player")
+        st.markdown(f"""
+        <div id="player-container" style="width:100%; margin-bottom:20px;">
+            <script src="https://cdn.jsdelivr.net/npm/midi-player-js@2.0.16/build/midi-player-js.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
+            
+            <div style="padding: 20px; border-radius: 5px; background-color: #f8f9fa;">
+                <button id="play" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Play</button>
+                <button id="pause" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Pause</button>
+                <button id="stop" class="button" style="padding: 8px 16px; margin-right: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Stop</button>
+                <div id="loading">Loading MIDI...</div>
+            </div>
+            
+            <script>
+                const midiData = "data:audio/midi;base64,{midi_b64}";
+                
+                // Wait for the page to load
+                window.addEventListener('load', function() {{
+                    const Player = new MidiPlayer.Player(function(event) {{
+                        // Handle events
+                    }});
+                    
+                    // Load MIDI file
+                    fetch(midiData)
+                        .then(response => response.arrayBuffer())
+                        .then(buffer => {{
+                            const loadingMessage = document.getElementById('loading');
+                            loadingMessage.innerHTML = "MIDI loaded successfully";
+                            Player.loadArrayBuffer(buffer);
+                            
+                            // Setup player controls
+                            document.getElementById('play').addEventListener('click', function() {{
+                                Player.play();
+                            }});
+                            
+                            document.getElementById('pause').addEventListener('click', function() {{
+                                Player.pause();
+                            }});
+                            
+                            document.getElementById('stop').addEventListener('click', function() {{
+                                Player.stop();
+                            }});
+                        }})
+                        .catch(error => {{
+                            console.error('Error loading MIDI:', error);
+                            document.getElementById('loading').innerHTML = "Error loading MIDI";
+                        }});
+                }});
+            </script>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.info("PDF preview is not available due to browser security restrictions. Please download the PDF to view it.")
 
@@ -368,89 +437,6 @@ if (convert_text or convert_file) and lilypond_path:
     
     except Exception as e:
         st.error(f"Error during conversion: {str(e)}")
-
-
-if st.session_state.midi_data is not None:
-    st.subheader("MIDI Preview")
-    midi_b64 = base64.b64encode(st.session_state.midi_data).decode()
-    midi_player = f"""
-    <div style='margin-bottom: 20px;'>
-        <audio controls>
-            <source src="data:audio/midi;base64,{midi_b64}" type="audio/midi">
-            Your browser does not support the audio element.
-        </audio>
-    </div>
-    """
-    st.markdown(midi_player, unsafe_allow_html=True)
-    
-    # Alternative HTML5 player for better MIDI support
-    st.markdown("### Advanced MIDI Player")
-    st.markdown(f"""
-    <div id="player-container" style="width:100%; margin-bottom:20px;">
-        <script src="https://cdn.jsdelivr.net/npm/midi-player-js@2.0.16/build/midi-player-js.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
-        
-        <div style="padding: 20px; border-radius: 5px; background-color: #f8f9fa;">
-            <button id="play" class="button">Play</button>
-            <button id="pause" class="button">Pause</button>
-            <button id="stop" class="button">Stop</button>
-            <div id="loading">Loading MIDI...</div>
-        </div>
-        
-        <script>
-            const midiData = "data:audio/midi;base64,{midi_b64}";
-            
-            // Wait for the page to load
-            window.addEventListener('load', function() {{
-                const Player = new MidiPlayer.Player(function(event) {{
-                    // Handle events
-                }});
-                
-                // Load MIDI file
-                fetch(midiData)
-                    .then(response => response.arrayBuffer())
-                    .then(buffer => {{
-                        const loadingMessage = document.getElementById('loading');
-                        loadingMessage.innerHTML = "MIDI loaded successfully";
-                        Player.loadArrayBuffer(buffer);
-                        
-                        // Setup player controls
-                        document.getElementById('play').addEventListener('click', function() {{
-                            Player.play();
-                        }});
-                        
-                        document.getElementById('pause').addEventListener('click', function() {{
-                            Player.pause();
-                        }});
-                        
-                        document.getElementById('stop').addEventListener('click', function() {{
-                            Player.stop();
-                        }});
-                    }})
-                    .catch(error => {{
-                        console.error('Error loading MIDI:', error);
-                        document.getElementById('loading').innerHTML = "Error loading MIDI";
-                    }});
-            }});
-        </script>
-        <style>
-            .button {{
-                padding: 8px 16px;
-                margin-right: 10px;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-            }}
-            .button:hover {{
-                background-color: #45a049;
-            }}
-        </style>
-    </div>
-    """, unsafe_allow_html=True)
-
-
 
 # Footer with instructions
 st.markdown("---")
