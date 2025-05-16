@@ -6,6 +6,7 @@ import base64
 from pathlib import Path
 import platform
 import re
+import music21
 
 st.set_page_config(
     page_title="LilyPond to PDF Converter",
@@ -287,97 +288,47 @@ with tab3:
     if uploaded_midi is not None:
         st.info("MIDI file uploaded successfully!")
         
-        # Options for conversion
-        st.subheader("Conversion Options")
-        key_option = st.selectbox("Key Signature", 
-                                 ["Determine automatically"] + 
-                                 ["C", "G", "D", "A", "E", "B", "F#", "C#", 
-                                  "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"])
-        
-        include_articulation = st.checkbox("Include articulations", value=True)
-        include_dynamics = st.checkbox("Include dynamics", value=True)
-        quantize_note = st.slider("Quantize note duration (smaller is more precise)", 
-                                min_value=4, max_value=32, value=16, step=4)
-        
         if st.button("Convert MIDI to LilyPond"):
-            # Create a status container
             status_container = st.empty()
             status_container.info("Starting conversion...")
             
             try:
-                # Create a temporary directory
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    # Save the uploaded MIDI file
-                    midi_path = os.path.join(temp_dir, "input.midi")
-                    with open(midi_path, 'wb') as f:
-                        f.write(uploaded_midi.getvalue())
-                    
-                    # Determine midi2ly path (typically in the same directory as lilypond)
-                    midi2ly_path = None
-                    if lilypond_path:
-                        # Get directory of lilypond
-                        lilypond_dir = os.path.dirname(lilypond_path)
-                        potential_midi2ly = os.path.join(lilypond_dir, "midi2ly")
-                        if os.path.exists(potential_midi2ly):
-                            midi2ly_path = potential_midi2ly
-                        elif os.path.exists(potential_midi2ly + ".exe"):
-                            midi2ly_path = potential_midi2ly + ".exe"
-                    
-                    if not midi2ly_path:
-                        status_container.error("midi2ly tool not found. It should be installed with LilyPond.")
-                        st.stop()
-                    
-                    # Build command for midi2ly
-                    ly_output_path = os.path.join(temp_dir, "output.ly")
-                    cmd = [midi2ly_path, "-o", ly_output_path]
-                    
-                    # Add options based on user selections
-                    if key_option != "Determine automatically":
-                        cmd.extend(["-k", key_option])
-                    if include_articulation:
-                        cmd.append("-a")
-                    if include_dynamics:
-                        cmd.append("-d")
-                    cmd.extend(["-q", str(quantize_note)])
-                    
-                    # Add the input file
-                    cmd.append(midi_path)
-                    
-                    # Run midi2ly
-                    status_container.info("Running midi2ly conversion...")
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True
-                    )
-                    
-                    if result.returncode != 0:
-                        status_container.error(f"midi2ly Error: {result.stderr}")
-                        st.stop()
-                    
-                    # Check if LilyPond was generated
-                    if not os.path.exists(ly_output_path):
-                        status_container.error("midi2ly did not generate LilyPond notation.")
-                        st.stop()
-                    
-                    # Read the generated LilyPond file
-                    with open(ly_output_path, "r") as ly_file:
-                        lilypond_text = ly_file.read()
-                    
-                    # Clear status
-                    status_container.empty()
-                    
-                    # Display the LilyPond notation
-                    st.subheader("Generated LilyPond Notation")
-                    st.text_area("Copy this code:", value=lilypond_text, height=400)
-                    
-                    # Add button to copy to the text input tab
-                    if st.button("Use this in the Text Input Tab"):
-                        st.session_state['ly_text'] = lilypond_text
-                        st.info("LilyPond code copied to the Text Input tab!")
-                    
+                # Save the uploaded MIDI file temporarily
+                with tempfile.NamedTemporaryFile(suffix='.mid', delete=False) as temp_file:
+                    temp_path = temp_file.name
+                    temp_file.write(uploaded_midi.getvalue())
+                
+                # Use music21 to convert MIDI to LilyPond
+                score = music21.converter.parse(temp_path)
+                
+                # Create a temporary file for LilyPond output
+                lily_output_path = temp_path + '.ly'
+                score.write('lily', lily_output_path)
+                
+                # Read the generated LilyPond file
+                with open(lily_output_path, 'r') as f:
+                    lily_text = f.read()
+                
+                # Clean up temporary files
+                os.unlink(temp_path)
+                os.unlink(lily_output_path)
+                
+                # Clear status
+                status_container.empty()
+                
+                # Display the LilyPond notation
+                st.subheader("Generated LilyPond Notation")
+                st.text_area("Copy this code:", value=lily_text, height=400)
+                
+                # Add button to copy to the text input tab
+                if st.button("Use this in the Text Input Tab", key="use_in_text_input"):
+                    st.session_state['ly_text'] = lily_text
+                    st.info("LilyPond code copied to the Text Input tab!")
+                
             except Exception as e:
                 st.error(f"Error during conversion: {str(e)}")
+                st.error("Detailed error information:")
+                st.code(traceback.format_exc())
 
 # Convert buttons
 convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)

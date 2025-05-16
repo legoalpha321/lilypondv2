@@ -1,3 +1,4 @@
 streamlit
 pillow
 pandas
+music21==8.1.0
