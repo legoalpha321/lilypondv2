@@ -8,7 +8,6 @@ import platform
 import re
 import music21
 import traceback
-import shutil
 
 st.set_page_config(
     page_title="LilyPond to PDF Converter",
@@ -19,7 +18,7 @@ st.set_page_config(
 # Title and description
 st.title("LilyPond to PDF Converter")
 st.markdown("""
-This app converts LilyPond notation to PDF sheet music and MIDI files.
+This app converts LilyPond notation to PDF sheet music and MIDI files, and can also convert MIDI files to LilyPond notation.
 """)
 
 # Function to extract title from LilyPond code
@@ -41,6 +40,68 @@ def extract_title_from_lilypond(ly_content):
         return safe_title
     
     return None
+
+# Functions for MIDI to LilyPond enhancement
+def enhance_lilypond_output(lily_text):
+    """Post-process the music21-generated LilyPond code to improve structure and readability."""
+    
+    # Fix the staff naming to be more meaningful
+    lily_text = re.sub(r'Staff\s+=\s+\w+', 'Staff = "upper"', lily_text, count=1)
+    lily_text = re.sub(r'Staff\s+=\s+\w+', 'Staff = "lower"', lily_text, count=1)
+    
+    # Fix empty clef or incorrect clefs
+    lily_text = re.sub(r'\\clef\s+""', '\\clef "bass"', lily_text)
+    
+    # Add proper header with title
+    if '\\header {' in lily_text:
+        lily_text = lily_text.replace('\\header {', '\\header {\n  title = "MIDI Conversion"\n  composer = "Auto-generated"\n')
+    else:
+        # If header doesn't exist, add one
+        lily_text = lily_text.replace('\\version', '\\header {\n  title = "MIDI Conversion"\n  composer = "Auto-generated"\n}\n\n\\version')
+    
+    # Try to identify musical sections based on rest patterns or key changes
+    # Add comments for better readability
+    if '\\key' in lily_text:
+        lily_text = re.sub(r'(\\key\s+\w+\s+\\[a-zA-Z]+)', r'% New section\n\1', lily_text)
+    
+    # Add tempo markings if they don't exist
+    if '\\tempo' not in lily_text:
+        lily_text = re.sub(r'(\\time\s+\d+\/\d+)', r'\1\n    \\tempo 4 = 120', lily_text, count=1)
+    
+    # Structure the score better
+    lily_text = lily_text.replace('\\score {', '\\score {\n  % Main score')
+    
+    # Add MIDI output if not present
+    if '\\midi' not in lily_text and '\\layout' in lily_text:
+        lily_text = lily_text.replace('\\layout {', '\\layout { }\n  \\midi {')
+        # Find the last closing brace of layout and add one for midi
+        last_brace_pos = lily_text.rfind('}')
+        lily_text = lily_text[:last_brace_pos] + '\n  }' + lily_text[last_brace_pos:]
+    
+    return lily_text
+
+def analyze_musical_structure(score):
+    """Analyze the musical structure to identify sections and themes."""
+    
+    # This would be a more advanced function to identify 
+    # repeated patterns, themes, and sections
+    sections = []
+    
+    # Find sections by looking for key changes, tempo changes, 
+    # or significant pauses
+    for part in score.parts:
+        measures = part.getElementsByClass('Measure')
+        
+        current_section_start = 0
+        for i, measure in enumerate(measures):
+            # Look for key changes
+            key_signatures = measure.getElementsByClass('KeySignature')
+            if key_signatures:
+                if i > current_section_start:
+                    sections.append((current_section_start, i-1))
+                    current_section_start = i
+    
+    return sections
 
 # Check if LilyPond is installed on the server
 @st.cache_resource
@@ -180,13 +241,16 @@ lower = \relative c {
 }
 
 \score {
-  \new PianoStaff 
+  \new PianoStaff <<
     \new Staff = "upper" \upper
     \new Staff = "lower" \lower
   >>
   \layout { }
   \midi { }
 }"""
+
+# Create tabs
+tab1, tab2, tab3 = st.tabs(["Input Text", "Upload File", "MIDI to LilyPond"])
 
 # Initialize session state for storing generated files
 if 'pdf_generated' not in st.session_state:
@@ -199,9 +263,8 @@ if 'midi_data' not in st.session_state:
     st.session_state.midi_data = None
 if 'midi_filename' not in st.session_state:
     st.session_state.midi_filename = None
-
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["Input Text", "Upload File", "Convert MIDI to LilyPond"])
+if 'ly_text' not in st.session_state:
+    st.session_state.ly_text = ''
 
 with tab1:
     # Text input area
@@ -229,9 +292,6 @@ with tab1:
     
     # Output options
     output_filename = st.text_input("Output Filename", value=default_filename)
-    
-    # Convert button for text input
-    convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)
 
 with tab2:
     # File upload
@@ -260,13 +320,24 @@ with tab2:
         default_name = "output"
         
     output_filename_file = st.text_input("Output Filename", value=default_name, key="file_output")
-    
-    # Convert button for file upload
-    convert_file = st.button("Convert to PDF", key="convert_file", disabled=not lilypond_path or uploaded_file is None)
 
 with tab3:
     st.subheader("Convert MIDI to LilyPond")
     uploaded_midi = st.file_uploader("Upload a MIDI file", type=['mid', 'midi'])
+    
+    # Add configuration options
+    st.subheader("Conversion Options")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        title = st.text_input("Title", "MIDI Conversion")
+        composer = st.text_input("Composer", "Auto-generated")
+    
+    with col2:
+        enhance_output = st.checkbox("Enhance output", value=True, 
+                                   help="Post-process the output to improve structure and readability")
+        analyze_structure = st.checkbox("Analyze musical structure", value=False,
+                                      help="Attempt to identify musical sections (experimental)")
     
     if uploaded_midi is not None:
         st.info("MIDI file uploaded successfully!")
@@ -284,6 +355,11 @@ with tab3:
                 # Use music21 to convert MIDI to LilyPond
                 score = music21.converter.parse(temp_path)
                 
+                # Optionally analyze the structure
+                if analyze_structure:
+                    sections = analyze_musical_structure(score)
+                    status_container.info(f"Found {len(sections)} musical sections")
+                
                 # Create a temporary file for LilyPond output
                 lily_output_path = temp_path + '.ly'
                 score.write('lily', lily_output_path)
@@ -291,6 +367,14 @@ with tab3:
                 # Read the generated LilyPond file
                 with open(lily_output_path, 'r') as f:
                     lily_text = f.read()
+                
+                # Enhance the output if requested
+                if enhance_output:
+                    lily_text = enhance_lilypond_output(lily_text)
+                    
+                    # Replace title and composer with user input
+                    lily_text = re.sub(r'title = "[^"]*"', f'title = "{title}"', lily_text)
+                    lily_text = re.sub(r'composer = "[^"]*"', f'composer = "{composer}"', lily_text)
                 
                 # Clean up temporary files
                 os.unlink(temp_path)
@@ -317,30 +401,30 @@ with tab3:
 if st.session_state.pdf_generated:
     st.success("Files generated successfully!")
     
-    col1, col2 = st.columns(2)
-    
     # Create download buttons for both PDF and MIDI
-    with col1:
-        if st.session_state.pdf_data is not None:
-            st.download_button(
-                label="Download PDF",
-                data=st.session_state.pdf_data,
-                file_name=st.session_state.pdf_filename,
-                mime="application/pdf",
-                key="pdf_download"
-            )
+    if st.session_state.pdf_data is not None:
+        st.download_button(
+            label="Download PDF",
+            data=st.session_state.pdf_data,
+            file_name=st.session_state.pdf_filename,
+            mime="application/octet-stream",
+            key="pdf_download"
+        )
     
-    with col2:
-        if st.session_state.midi_data is not None:
-            st.download_button(
-                label="Download MIDI",
-                data=st.session_state.midi_data,
-                file_name=st.session_state.midi_filename,
-                mime="audio/midi",
-                key="midi_download"
-            )
+    if st.session_state.midi_data is not None:
+        st.download_button(
+            label="Download MIDI",
+            data=st.session_state.midi_data,
+            file_name=st.session_state.midi_filename,
+            mime="audio/midi",
+            key="midi_download"
+        )
     
     st.info("PDF preview is not available due to browser security restrictions. Please download the PDF to view it.")
+
+# Convert buttons
+convert_text = st.button("Convert to PDF", key="convert_text", disabled=not lilypond_path)
+convert_file = st.button("Convert to PDF", key="convert_file", disabled=not lilypond_path or uploaded_file is None)
 
 # Processing logic
 if (convert_text or convert_file) and lilypond_path:
@@ -392,6 +476,7 @@ if (convert_text or convert_file) and lilypond_path:
             os.makedirs(cache_dir, exist_ok=True)
             final_pdf_path = os.path.join(cache_dir, f"{output_name}.pdf")
             
+            import shutil
             shutil.copy2(temp_pdf_path, final_pdf_path)
             
             # Store PDF data in session state
@@ -430,9 +515,22 @@ if (convert_text or convert_file) and lilypond_path:
 st.markdown("---")
 st.markdown("""
 ### How to Use This App
-1. Enter LilyPond notation, upload a .ly file, or convert a MIDI file
-2. Set your desired output filename
-3. Click "Convert to PDF" (for LilyPond input) or "Convert MIDI to LilyPond" (for MIDI input)
+1. **Input Text Tab**: Enter LilyPond notation directly
+   - Paste your LilyPond code or use the sample
+   - Set your output filename
+   - Click "Convert to PDF"
+
+2. **Upload File Tab**: Upload an existing LilyPond file
+   - Upload your .ly file
+   - Set your output filename
+   - Click "Convert to PDF"
+
+3. **MIDI to LilyPond Tab**: Convert MIDI files to LilyPond notation
+   - Upload a MIDI file
+   - Configure conversion options
+   - Click "Convert MIDI to LilyPond"
+   - Optionally send the generated code to the Text Input tab
+
 4. Download the generated PDF and MIDI files
 
 ### About LilyPond
